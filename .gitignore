@@ -1,0 +1,9 @@
+data/
+.venv/
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+.DS_Store
+report.pdf
+*.zip
