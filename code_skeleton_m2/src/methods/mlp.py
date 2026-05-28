@@ -1,77 +1,85 @@
 import numpy as np
+from ..activations import Sigmoid, ReLU, Softmax, Identity
+
 
 class MLP:
-    def __init__(self, dimensions, activations):
+    def __init__(self, dimensions, activations, class_weights=None):
         """
-        :param dimensions: list of dimensions of the neural net. (input, hidden layer, ... ,hidden layer, output)
-        :param activations: list of activation functions. Must contain N-1 activation function, where N = len(dimensions).
-
-        Example of one hidden layer with
-        - 2 inputs
-        - 10 hidden nodes
-        - 5 outputs
-        layers -->    [0,        1,          2]
-        ----------------------------------------
-        dimensions =  (2,     10,          5)
-        activations = (      Sigmoid,      Sigmoid)
+        :param dimensions: list (input, hidden, ..., hidden, output)
+        :param activations: list of N-1 activation classes, where N = len(dimensions)
+        :param class_weights: optional (n_classes,) array of per-class weights for the loss
         """
+        self.dimensions = list(dimensions)
+        self.activations = list(activations)
+        self.n_layers = len(self.dimensions) - 1
+        self.class_weights = class_weights
 
-        ### WRITE YOUR CODE HERE
+        self.w = {}
+        self.b = {}
+        for l in range(1, self.n_layers + 1):
+            fan_in = self.dimensions[l - 1]
+            fan_out = self.dimensions[l]
+            if self.activations[l - 1] is ReLU:
+                std = np.sqrt(2.0 / fan_in)   # He init
+            else:
+                std = np.sqrt(1.0 / fan_in)   # Xavier init
+            self.w[l] = np.random.randn(fan_in, fan_out) * std
+            self.b[l] = np.zeros((1, fan_out))
+
+        self.lr = 1e-3
 
     def feed_forward(self, x):
-        """
-        Execute a forward feed through the network.
-        :param x: (array) Batch of input data vectors.
-        :return: (tpl) Node outputs and activations per layer. The numbering of the output is equivalent to the layer numbers.
-        """
-
-        ### WRITE YOUR CODE HERE
-
+        z = {}
+        a = {0: x}
+        for l in range(1, self.n_layers + 1):
+            z[l] = a[l - 1] @ self.w[l] + self.b[l]
+            a[l] = self.activations[l - 1].forward(z[l])
+        return z, a
 
     def predict(self, x):
-        """
-        :param x: (array) Containing parameters
-        :return: (array) A 2D array of shape (n_cases, n_classes).
-        """
-
-        ### WRITE YOUR CODE HERE
-
+        _, a = self.feed_forward(x)
+        return a[self.n_layers]
 
     def back_prop(self, z, a, y_true, loss):
-        """
-        The input dicts keys represent the layers of the net.
-        a = { 0: x,
-              1: f(w1(x) + b1)
-              2: f(w2(a2) + b2)
-              }
-        :param a: (dict) w^T@x + b
-        :param z: (dict) f(a)
-        :param y_true: (array) One hot encoded truth vector.
-        :param loss: Loss class with a static .gradient(y_true, y_pred) method.
-        :return:
-        """
+        L = self.n_layers
+        N = y_true.shape[0]
+        out_act = self.activations[L - 1]
 
-        ### WRITE YOUR CODE HERE
+        if out_act is Softmax:
+            # softmax + cross-entropy combined: gradient = (p - y)/N
+            if self.class_weights is not None:
+                # weighted cross-entropy: scale each sample by its true-class weight
+                sample_w = (y_true @ self.class_weights).reshape(-1, 1)
+                delta = sample_w * (a[L] - y_true) / N
+            else:
+                delta = (a[L] - y_true) / N
+        else:
+            delta = loss.gradient(y_true, a[L]) * out_act.gradient(z[L])
 
+        for l in range(L, 0, -1):
+            dw = a[l - 1].T @ delta
+            if l > 1:
+                delta_prev = (delta @ self.w[l].T) * self.activations[l - 2].gradient(z[l - 1])
+            self.update_w_b(l, dw, delta)
+            if l > 1:
+                delta = delta_prev
 
     def update_w_b(self, index, dw, delta):
-        """
-        Update weights and biases.
-        :param index: (int) Number of the layer
-        :param dw: (array) Partial derivatives
-        :param delta: (array) Delta error.
-        """
-
-        ### WRITE YOUR CODE HERE
+        self.w[index] = self.w[index] - self.lr * dw
+        self.b[index] = self.b[index] - self.lr * np.sum(delta, axis=0, keepdims=True)
 
     def fit(self, x, y_true, loss, epochs, batch_size, learning_rate=1e-3):
-        """
-        :param x: (array) Containing parameters
-        :param y_true: (array) Containing one hot encoded labels.
-        :param loss: Loss class (MSE, CrossEntropy etc.)
-        :param epochs: (int) Number of epochs.
-        :param batch_size: (int)
-        :param learning_rate: (flt)
-        """
+        self.lr = learning_rate
+        N = x.shape[0]
+        if batch_size is None or batch_size > N:
+            batch_size = N
 
-        ### WRITE YOUR CODE HERE
+        for epoch in range(epochs):
+            perm = np.random.permutation(N)
+            x_sh = x[perm]
+            y_sh = y_true[perm]
+            for start in range(0, N, batch_size):
+                xb = x_sh[start:start + batch_size]
+                yb = y_sh[start:start + batch_size]
+                z, a = self.feed_forward(xb)
+                self.back_prop(z, a, yb, loss)
