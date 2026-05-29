@@ -3,16 +3,18 @@ from ..activations import Sigmoid, ReLU, Softmax, Identity
 
 
 class MLP:
-    def __init__(self, dimensions, activations, class_weights=None):
+    def __init__(self, dimensions, activations, class_weights=None, weight_decay=0.0):
         """
         :param dimensions: list (input, hidden, ..., hidden, output)
-        :param activations: list of N-1 activation classes, where N = len(dimensions)
-        :param class_weights: optional (n_classes,) array of per-class weights for the loss
+        :param activations: list of N-1 activation classes
+        :param class_weights: optional (n_classes,) per-class weights
+        :param weight_decay: L2 regularization coefficient lambda (default 0 = off)
         """
         self.dimensions = list(dimensions)
         self.activations = list(activations)
         self.n_layers = len(self.dimensions) - 1
         self.class_weights = class_weights
+        self.weight_decay = weight_decay
 
         self.w = {}
         self.b = {}
@@ -20,9 +22,9 @@ class MLP:
             fan_in = self.dimensions[l - 1]
             fan_out = self.dimensions[l]
             if self.activations[l - 1] is ReLU:
-                std = np.sqrt(2.0 / fan_in)   # He init
+                std = np.sqrt(2.0 / fan_in)
             else:
-                std = np.sqrt(1.0 / fan_in)   # Xavier init
+                std = np.sqrt(1.0 / fan_in)
             self.w[l] = np.random.randn(fan_in, fan_out) * std
             self.b[l] = np.zeros((1, fan_out))
 
@@ -46,9 +48,7 @@ class MLP:
         out_act = self.activations[L - 1]
 
         if out_act is Softmax:
-            # softmax + cross-entropy combined: gradient = (p - y)/N
             if self.class_weights is not None:
-                # weighted cross-entropy: scale each sample by its true-class weight
                 sample_w = (y_true @ self.class_weights).reshape(-1, 1)
                 delta = sample_w * (a[L] - y_true) / N
             else:
@@ -65,6 +65,9 @@ class MLP:
                 delta = delta_prev
 
     def update_w_b(self, index, dw, delta):
+        # L2 weight decay: add lambda * W to the weight gradient (NOT to bias)
+        if self.weight_decay > 0:
+            dw = dw + self.weight_decay * self.w[index]
         self.w[index] = self.w[index] - self.lr * dw
         self.b[index] = self.b[index] - self.lr * np.sum(delta, axis=0, keepdims=True)
 

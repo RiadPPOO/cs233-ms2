@@ -68,11 +68,14 @@ def main(args):
                 class_weights = counts.sum() / (out_dim * counts)
             else:
                 class_weights = None
-            method_obj = MLP(dimensions, activations, class_weights=class_weights)
+            method_obj = MLP(dimensions, activations,
+                             class_weights=class_weights,
+                             weight_decay=args.weight_decay)
         else:
             dimensions = [D] + args.hidden_sizes + [1]
             activations = [act] * len(args.hidden_sizes) + [Identity]
-            method_obj = MLP(dimensions, activations)
+            method_obj = MLP(dimensions, activations,
+                             weight_decay=args.weight_decay)
 
     else:
         raise ValueError(f"Unknown method: {args.method}")
@@ -142,6 +145,8 @@ if __name__ == "__main__":
                         help="batch size for MLP training")
     parser.add_argument("--weighted", action="store_true",
                         help="use class-weighted cross-entropy for the MLP (helps with imbalance)")
+    parser.add_argument("--weight_decay", type=float, default=0.0,
+                        help="L2 regularization coefficient lambda (0 = off)")
 
     args = parser.parse_args()
     main(args)
